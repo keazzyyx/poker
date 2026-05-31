@@ -27,13 +27,24 @@
     : null;
 
   // ---- Identity ------------------------------------------------------------
+  // Generate an RFC-4122 v4 UUID on the client. Used for both client ids and
+  // room primary keys so we never rely on a database-side default.
+  function uuid() {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    // Fallback for older browsers without crypto.randomUUID.
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
   // A stable, anonymous client id so a player can rejoin/refresh and keep their
   // seat. Stored once in localStorage and reused across rooms.
   function clientId() {
     let id = localStorage.getItem('poker_client_id');
     if (!id) {
-      id = (crypto.randomUUID && crypto.randomUUID()) ||
-        'p-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      id = uuid();
       localStorage.setItem('poker_client_id', id);
     }
     return id;
@@ -51,9 +62,18 @@
 
   // ---- Rooms ---------------------------------------------------------------
   async function createRoom({ code, hostId, smallBlind, bigBlind }) {
+    // Generate the primary key client-side so the insert never depends on a
+    // database default (some setups don't have gen_random_uuid() as a default).
     const { data, error } = await client
       .from('rooms')
-      .insert({ code, host_id: hostId, small_blind: smallBlind, big_blind: bigBlind, status: 'lobby' })
+      .insert({
+        id: uuid(),
+        code,
+        host_id: hostId,
+        small_blind: smallBlind,
+        big_blind: bigBlind,
+        status: 'lobby',
+      })
       .select()
       .single();
     if (error) throw error;
@@ -138,6 +158,7 @@
   window.DB = {
     client,
     configured,
+    uuid,
     clientId,
     generateRoomCode,
     createRoom,
