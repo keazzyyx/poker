@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hold'em — Multiplayer Poker</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+</head>
+<body class="home">
+  <main class="home-card">
+    <h1 class="logo">♠ Hold'em</h1>
+    <p class="tagline">Real-time multiplayer Texas Hold'em. No sign-up — just share the link.</p>
+
+    <!-- Tabs to switch between creating and joining a game. -->
+    <div class="tabs">
+      <button class="tab active" data-tab="create">Create Game</button>
+      <button class="tab" data-tab="join">Join Game</button>
+    </div>
+
+    <!-- Create a new room -->
+    <section id="tab-create" class="tab-panel">
+      <label>Your name
+        <input id="create-username" type="text" maxlength="16" placeholder="e.g. Alice" />
+      </label>
+      <label>Buy-in (chips)
+        <input id="create-buyin" type="number" value="1000" min="100" step="100" />
+      </label>
+      <div class="row">
+        <label>Small blind
+          <input id="create-sb" type="number" value="10" min="1" step="1" />
+        </label>
+        <label>Big blind
+          <input id="create-bb" type="number" value="20" min="2" step="1" />
+        </label>
+      </div>
+      <button id="create-btn" class="primary">Create Table</button>
+    </section>
+
+    <!-- Join an existing room by code -->
+    <section id="tab-join" class="tab-panel hidden">
+      <label>Room code
+        <input id="join-code" type="text" maxlength="6" placeholder="ABC123"
+               style="text-transform:uppercase" />
+      </label>
+      <button id="join-btn" class="primary">Go to Table</button>
+    </section>
+
+    <p id="home-error" class="error"></p>
+  </main>
+
+  <!-- Supabase client from CDN, then our DB layer. No build step / npm needed. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase.js"></script>
+  <script>
+    // Small inline controller for the home page (create / join routing only).
+    const $ = (id) => document.getElementById(id);
+    const errEl = $('home-error');
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.dataset.tab;
+        $('tab-create').classList.toggle('hidden', tab !== 'create');
+        $('tab-join').classList.toggle('hidden', tab !== 'join');
+        errEl.textContent = '';
+      });
+    });
+
+    // Create a room + the host's own player row, then go to the table.
+    $('create-btn').addEventListener('click', async () => {
+      errEl.textContent = '';
+      if (!DB.configured) {
+        errEl.textContent = 'Supabase is not configured — see README.md / js/supabase.js.';
+        return;
+      }
+      const username = $('create-username').value.trim() || 'Host';
+      const buyIn = Math.max(1, parseInt($('create-buyin').value, 10) || 1000);
+      const sb = Math.max(1, parseInt($('create-sb').value, 10) || 10);
+      const bb = Math.max(sb + 1, parseInt($('create-bb').value, 10) || 20);
+
+      try {
+        const code = DB.generateRoomCode();
+        const hostId = DB.clientId();
+        const room = await DB.createRoom({ code, hostId, smallBlind: sb, bigBlind: bb });
+        await DB.upsertPlayer({
+          id: hostId, room_id: room.id, username,
+          chips: buyIn, buy_in: buyIn, seat: 0, is_host: true, connected: true,
+        });
+        location.href = 'game.html?room=' + code;
+      } catch (e) {
+        errEl.textContent = 'Could not create the room: ' + e.message;
+      }
+    });
+
+    // Just redirect to the table; registration happens there.
+    $('join-btn').addEventListener('click', () => {
+      const code = $('join-code').value.trim().toUpperCase();
+      if (!code) { errEl.textContent = 'Enter a room code.'; return; }
+      location.href = 'game.html?room=' + code;
+    });
+  </script>
+</body>
+</html>

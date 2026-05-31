@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Poker Table — Hold'em</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="game">
+
+  <!-- Fatal error overlay (no room, no config, etc.) -->
+  <div id="fatal" class="overlay hidden"></div>
+
+  <!-- ================= JOIN MODAL (shown to new arrivals) ================= -->
+  <div id="join-view" class="overlay hidden">
+    <div class="modal">
+      <h2>Join Table <span id="join-room-code" class="code-pill"></span></h2>
+      <label>Your name
+        <input id="join-username" type="text" maxlength="16" placeholder="e.g. Bob" />
+      </label>
+      <label>Buy-in (chips)
+        <input id="join-buyin" type="number" value="1000" min="100" step="100" />
+      </label>
+      <button id="join-submit" class="primary">Take a Seat</button>
+      <p id="join-error" class="error"></p>
+    </div>
+  </div>
+
+  <!-- ====================== LOBBY (before game start) ==================== -->
+  <div id="lobby-view" class="overlay hidden">
+    <div class="modal wide">
+      <h2>Lobby <span class="code-pill" id="lobby-code"></span></h2>
+      <p id="lobby-blinds" class="muted"></p>
+
+      <div class="share">
+        <input id="share-link" readonly />
+        <button id="copy-link" class="ghost">Copy</button>
+      </div>
+      <p class="muted small">Share this link so friends can join.</p>
+
+      <ul id="lobby-players" class="lobby-list"></ul>
+
+      <button id="start-game-btn" class="primary hidden"></button>
+      <p id="lobby-wait" class="muted"></p>
+    </div>
+  </div>
+
+  <!-- ========================= THE POKER TABLE ========================== -->
+  <div id="table-view" class="hidden">
+    <header class="table-header">
+      <a href="index.html" class="back">← Home</a>
+      <span class="code-pill">Room <span id="table-code"></span></span>
+    </header>
+
+    <div id="winner-banner" class="winner-banner hidden"></div>
+
+    <div class="felt">
+      <div class="table-center">
+        <div class="pot">Pot: <strong id="pot-amount">0</strong></div>
+        <div id="community" class="community"></div>
+        <div id="table-message" class="table-message"></div>
+      </div>
+      <div id="seats" class="seats"></div>
+    </div>
+
+    <!-- Action controls (visible only on your turn) -->
+    <div id="action-bar" class="action-bar hidden">
+      <button id="btn-fold" class="act fold">Fold</button>
+      <button id="btn-call" class="act call" data-action="call">Call</button>
+      <div id="raise-wrap" class="raise-wrap">
+        <input id="raise-slider" type="range" />
+        <span class="raise-value">to <strong id="raise-amount">0</strong></span>
+        <button id="btn-raise" class="act raise">Raise</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supabase client, then engine, DB layer and the orchestrator. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
