@@ -13,18 +13,20 @@
   'use strict';
 
   // ---- Configuration -------------------------------------------------------
-  const SUPABASE_URL =
-    localStorage.getItem('sb_url') || 'https://ysdnbahtupolcpqovuhe.supabase.co';
-  const SUPABASE_ANON_KEY =
-    localStorage.getItem('sb_key') || 'sb_publishable_h0Hl8elo2XgI516HEy4LHw_yAxL0xDk';
+  // Credentials are hardcoded so the app also works when opened directly as a
+  // file:// URL (where localStorage can be unavailable/blocked). Swap these for
+  // your own project's values from Supabase Dashboard → Project Settings → API.
+  const SUPABASE_URL = 'https://ysdnbahtupolcpqovuhe.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_h0Hl8elo2XgI516HEy4LHw_yAxL0xDk';
 
   const configured =
     SUPABASE_URL.startsWith('http') && SUPABASE_ANON_KEY.length > 20;
 
   // `supabase` is the global created by the CDN script (@supabase/supabase-js).
-  const client = configured
-    ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-    : null;
+  const client = supabase.createClient(
+    'https://ysdnbahtupolcpqovuhe.supabase.co',
+    'sb_publishable_h0Hl8elo2XgI516HEy4LHw_yAxL0xDk'
+  );
 
   // ---- Identity ------------------------------------------------------------
   // Generate an RFC-4122 v4 UUID on the client. Used for both client ids and
@@ -40,14 +42,21 @@
   }
 
   // A stable, anonymous client id so a player can rejoin/refresh and keep their
-  // seat. Stored once in localStorage and reused across rooms.
+  // seat. Stored in localStorage when available; falls back to an in-memory id
+  // so the app still works on file:// where storage may be blocked.
+  let memoryId = null;
   function clientId() {
-    let id = localStorage.getItem('poker_client_id');
-    if (!id) {
-      id = uuid();
-      localStorage.setItem('poker_client_id', id);
+    try {
+      let id = localStorage.getItem('poker_client_id');
+      if (!id) {
+        id = uuid();
+        localStorage.setItem('poker_client_id', id);
+      }
+      return id;
+    } catch (e) {
+      if (!memoryId) memoryId = uuid();
+      return memoryId;
     }
-    return id;
   }
 
   // Short, friendly, unambiguous room code (no 0/O/1/I).
