@@ -31,6 +31,13 @@
   let processing = false;  // prevents overlapping async ticks
   let scheduledForHand = null; // handNumber we've already queued a "next hand" for
 
+  // Action-bar state. `pendingMove` is an optimistic lock so the controls stay
+  // hidden between clicking and the host applying the move (prevents the bar
+  // flickering back and double-submits). `shownSig` is the turn the controls are
+  // currently configured for, so re-renders don't reset a slider mid-drag.
+  let pendingMove = null;  // { sig, seen } for the move I just submitted
+  let shownSig = null;
+
   // ---- Tiny DOM helpers ----------------------------------------------------
   const $ = (id) => document.getElementById(id);
   const show = (id) => $(id).classList.remove('hidden');
@@ -192,6 +199,10 @@
       }
 
       // Find the player whose turn it is and who has submitted a move.
+      // NOTE: we deliberately do NOT bulk-clear other players' pending_actions.
+      // The host's snapshot can lag a tick behind a player's submission, and
+      // clearing on a stale `currentSeat` would drop a valid in-flight move.
+      // A move is only ever consumed (and cleared) for the player on turn.
       const acting = players.find(
         (p) =>
           p.pending_action &&
@@ -200,18 +211,21 @@
           state.players[p.id].status === 'active'
       );
 
-      // Drop any stale moves from players who are not on turn.
-      for (const p of players) {
-        if (p.pending_action && (!acting || p.id !== acting.id) &&
-            (!state.players[p.id] || state.players[p.id].seat !== state.currentSeat)) {
-          await DB.updatePlayer(p.id, room.id, { pending_action: null });
-        }
-      }
-
       if (acting) {
         const mv = acting.pending_action;
+        const currentSig = turnSignature(state);
+
+        // Ignore (and clear) a move tagged for a different decision point — it's
+        // a stale submission, e.g. a duplicate or one made against old state.
+        if (mv.sig && mv.sig !== currentSig) {
+          await DB.updatePlayer(acting.id, room.id, { pending_action: null });
+          return;
+        }
+
         state.playerNames = nameMap(players);
         Engine.applyAction(state, acting.id, mv.action, mv.amount);
+        // Clear the consumed move first, then publish the new state, so clients
+        // never momentarily see "my move applied" with the move still pending.
         await DB.updatePlayer(acting.id, room.id, { pending_action: null });
         await DB.updateRoom(room.id, { state });
       }
@@ -275,11 +289,32 @@
   // =========================================================================
   // PLAYER ACTIONS (everyone, including host)
   // =========================================================================
+  // A signature that uniquely identifies the current decision point. If anything
+  // about whose-turn-it-is changes, so does this string. Used both to tag a
+  // submitted move and to know when a fresh turn starts.
+  function turnSignature(state) {
+    if (!state) return '';
+    return [state.handNumber, state.phase, state.currentSeat, state.currentBet].join(':');
+  }
+
   async function sendAction(action, amount) {
-    if (!myPlayer) return;
-    await DB.setPendingAction(me, room.id, { action, amount: amount || 0 });
-    // Optimistically grey the controls; host will advance the turn shortly.
-    hide('action-bar');
+    if (!myPlayer || !room.state) return;
+    // Ignore extra clicks once a move for this turn is already in flight.
+    if (pendingMove) return;
+
+    const sig = turnSignature(room.state);
+    pendingMove = { sig, seen: false };
+    hide('action-bar'); // lock the controls immediately
+
+    try {
+      await DB.setPendingAction(me, room.id, { action, amount: amount || 0, sig });
+    } catch (e) {
+      // Let the player try again if the write failed.
+      pendingMove = null;
+      console.error('sendAction failed', e);
+      render();
+      return;
+    }
     if (isHost) hostTick();
   }
 
@@ -420,12 +455,37 @@
   }
 
   function renderActionBar(state) {
-    const bar = $('action-bar');
     const legal = Engine.legalActions(state, me);
+
+    // Not my turn (or game not running): hide controls and release any lock.
     if (!legal || room.status !== 'playing') {
+      pendingMove = null;
+      shownSig = null;
       hide('action-bar');
       return;
     }
+
+    const sig = turnSignature(state);
+
+    // Reconcile the optimistic lock with what the server actually shows.
+    if (pendingMove) {
+      if (pendingMove.sig !== sig) {
+        // The decision point moved on → my move was applied. Release the lock.
+        pendingMove = null;
+      } else {
+        // Still the same turn. Track the move appearing then being consumed by
+        // the host, so a rejected/cleared move re-enables the controls.
+        if (myPlayer && myPlayer.pending_action) pendingMove.seen = true;
+        if (pendingMove.seen && myPlayer && !myPlayer.pending_action) pendingMove = null;
+      }
+    }
+
+    // While a move is pending (locally or on the server), keep controls hidden.
+    if (pendingMove || (myPlayer && myPlayer.pending_action)) {
+      hide('action-bar');
+      return;
+    }
+
     show('action-bar');
 
     // Check vs Call label.
@@ -448,14 +508,27 @@
       slider.min = lo;
       slider.max = hi;
       slider.step = Math.max(1, Math.min(room.big_blind, hi - lo || 1));
-      slider.value = lo;
       slider.disabled = hi <= lo;
-      $('raise-amount').textContent = lo;
+
+      // Only reset the slider when this is a brand-new turn; otherwise preserve
+      // whatever the player is currently dragging so re-renders don't reset it.
+      if (shownSig !== sig) {
+        slider.value = lo;
+      } else {
+        let v = parseInt(slider.value, 10);
+        if (isNaN(v) || v < lo) v = lo;
+        if (v > hi) v = hi;
+        slider.value = v;
+      }
+      $('raise-amount').textContent = slider.value;
+
       const allInOnly = hi <= lo;
       $('btn-raise').textContent = allInOnly ? 'All in' : (state.currentBet > 0 ? 'Raise' : 'Bet');
     } else {
       hide('raise-wrap');
     }
+
+    shownSig = sig;
   }
 
   // ---- Card markup ---------------------------------------------------------
